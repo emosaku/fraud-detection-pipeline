@@ -20,6 +20,13 @@ dev = [
     "pytest",
     "ruff",
 ]
+data = [
+    "kagglehub",
+]
+notebook = [
+    "jupyterlab",
+    "matplotlib",
+]
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/fraud_pipeline"]
