@@ -53,7 +53,7 @@ None of the above is wired up yet — see "Current state" below.
 | Phase | Description | Status |
 |---|---|---|
 | 0 | Project scaffolding, tooling, environment | **Complete** |
-| 1 | Simulated transaction-stream producer replaying a public fraud dataset | Not started |
+| 1 | Simulated transaction-stream producer replaying a public fraud dataset | **In progress** |
 | 2 | Streaming ingestion + windowed feature engineering (Pub/Sub + Dataflow/Beam) | Not started |
 | 3 | Offline anomaly/fraud model development (Isolation Forest, autoencoder, XGBoost comparison) | Not started |
 | 4 | Real-time scoring | Not started |
@@ -63,19 +63,18 @@ None of the above is wired up yet — see "Current state" below.
 
 ## Current state
 
-**This is scaffolding only.** As of Phase 0, the repository contains:
+Phase 0 (scaffolding) is complete. Phase 1 (the transaction-stream producer) is in
+progress: the producer code exists, has been validated with `--dry-run`, and passes its
+unit tests, but has **not yet been confirmed with a real end-to-end Pub/Sub run** — that
+confirmation will flip Phase 1 to complete in the roadmap above.
 
-- The installable package structure (`src/fraud_pipeline/` and its
-  subpackages), each currently empty apart from a docstring describing what
-  it will hold and which phase introduces it
-- A mirrored `tests/` tree with one placeholder test per subpackage, so
-  `pytest` has something to discover
-- Project tooling: `pyproject.toml`, `ruff` configuration, `.gitignore`,
-  `.env.example`
-- Empty `notebooks/`, `data/raw/`, `data/processed/`, and `docs/` directories
-
-There is **no working pipeline, no data, no models, and no GCP integration
-yet.** Those are built incrementally, phase by phase.
+- `data/raw/creditcard.csv` is downloaded locally (git-ignored) and explored in
+  `notebooks/01_eda.ipynb` and `notebooks/02_generic_skeleton.ipynb`; see
+  `docs/data-dictionary.md` and `docs/eda-strategies.md`
+- `src/fraud_pipeline/ingestion/producer.py` replays the dataset as a simulated stream —
+  see "Running the producer" below
+- Everything from Phase 2 onward (feature engineering, model training, scoring, storage,
+  drift monitoring, the dashboard) is **not started**
 
 ## Setup
 
@@ -100,19 +99,44 @@ pytest
 If you prefer `uv` or `poetry`, they'll work fine against the same
 `pyproject.toml` — this project doesn't assume either one is installed.
 
+## Running the producer
+
+`src/fraud_pipeline/ingestion/producer.py` replays `data/raw/creditcard.csv` as a simulated
+transaction stream: synthetic account IDs are assigned (Zipf-distributed, so some accounts
+are busier than others), rows are replayed in original time order on a compressed timescale,
+and each transaction is published as a Pub/Sub message that never includes the `Class`
+(fraud) label — that label is written separately to `data/processed/ground_truth.jsonl` for
+evaluation later.
+
+**Dry run — no GCP setup required, prints messages to the console instead of publishing:**
+
+```bash
+python -m fraud_pipeline.ingestion.producer --dry-run --limit 1000 --duration-minutes 1
+```
+
+**Real Pub/Sub mode** — requires `GCP_PROJECT_ID` and `PUBSUB_TOPIC` set (in `.env` or the
+environment); the topic is created automatically if it doesn't exist:
+
+```bash
+python -m fraud_pipeline.ingestion.producer --duration-minutes 10
+```
+
+Other flags: `--input` (CSV path, default `data/raw/creditcard.csv`), `--num-accounts`
+(default 2000), `--seed` (default 42, for reproducible account assignment).
+
 ## Tech stack
 
-**In use now (Phase 0):**
+**In use now:**
 - Python 3.11+
 - pandas, numpy
 - python-dotenv
+- google-cloud-pubsub
 - pytest
 - ruff (lint + format)
 
 **Introduced in later phases** (see [`docs/future-dependencies.md`](docs/future-dependencies.md)
 for exactly when and why):
 - Apache Beam / Google Cloud Dataflow — streaming ingestion & feature engineering
-- Google Cloud Pub/Sub — event streaming backbone
 - Google Cloud BigQuery — storage, querying, and alerting
 - Google Cloud Composer — orchestration of offline/batch jobs
 - Google Cloud Run — serving the dashboard

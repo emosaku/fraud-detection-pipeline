@@ -7,7 +7,6 @@ below gets added incrementally as its corresponding phase begins, not before.
 | Dependency | Introduced in | Why |
 |---|---|---|
 | `apache-beam` | Phase 2 | Windowed feature engineering / Dataflow pipeline definition |
-| `google-cloud-pubsub` | Phase 2 | Publishing and consuming the simulated transaction stream |
 | `scikit-learn` | Phase 3 | Isolation Forest and general model utilities |
 | `pyod` | Phase 3 | Autoencoder and other anomaly detection algorithms |
 | `xgboost` | Phase 3 | Supervised fraud classifier for comparison against unsupervised methods |
@@ -18,3 +17,6 @@ When a phase begins, add its dependencies to `pyproject.toml` under
 `[project.dependencies]` (or a phase-specific optional extra, e.g.
 `[project.optional-dependencies.streaming]`) rather than installing them
 ad hoc.
+
+`google-cloud-pubsub` moved to `[project.dependencies]` in Phase 1 (the producer
+publishes to Pub/Sub directly), earlier than originally planned above.

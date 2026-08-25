@@ -13,6 +13,7 @@ dependencies = [
     "pandas",
     "numpy",
     "python-dotenv",
+    "google-cloud-pubsub",
 ]
 
 [project.optional-dependencies]
