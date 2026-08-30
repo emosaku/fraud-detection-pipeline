@@ -14,6 +14,7 @@ dependencies = [
     "numpy",
     "python-dotenv",
     "google-cloud-pubsub",
+    "apache-beam[gcp]",
 ]
 
 [project.optional-dependencies]

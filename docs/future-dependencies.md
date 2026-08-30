@@ -6,7 +6,6 @@ below gets added incrementally as its corresponding phase begins, not before.
 
 | Dependency | Introduced in | Why |
 |---|---|---|
-| `apache-beam` | Phase 2 | Windowed feature engineering / Dataflow pipeline definition |
 | `scikit-learn` | Phase 3 | Isolation Forest and general model utilities |
 | `pyod` | Phase 3 | Autoencoder and other anomaly detection algorithms |
 | `xgboost` | Phase 3 | Supervised fraud classifier for comparison against unsupervised methods |
@@ -20,3 +19,6 @@ ad hoc.
 
 `google-cloud-pubsub` moved to `[project.dependencies]` in Phase 1 (the producer
 publishes to Pub/Sub directly), earlier than originally planned above.
+
+`apache-beam[gcp]` moved to `[project.dependencies]` in Phase 2 (the windowed
+feature-engineering pipeline is built and deployed to Dataflow directly).

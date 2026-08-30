@@ -54,7 +54,7 @@ None of the above is wired up yet — see "Current state" below.
 |---|---|---|
 | 0 | Project scaffolding, tooling, environment | **Complete** |
 | 1 | Simulated transaction-stream producer replaying a public fraud dataset | **In progress** |
-| 2 | Streaming ingestion + windowed feature engineering (Pub/Sub + Dataflow/Beam) | Not started |
+| 2 | Streaming ingestion + windowed feature engineering (Pub/Sub + Dataflow/Beam) | **In progress** |
 | 3 | Offline anomaly/fraud model development (Isolation Forest, autoencoder, XGBoost comparison) | Not started |
 | 4 | Real-time scoring | Not started |
 | 5 | Storage + alerting (BigQuery) | Not started |
@@ -63,18 +63,25 @@ None of the above is wired up yet — see "Current state" below.
 
 ## Current state
 
-Phase 0 (scaffolding) is complete. Phase 1 (the transaction-stream producer) is in
-progress: the producer code exists, has been validated with `--dry-run`, and passes its
-unit tests, but has **not yet been confirmed with a real end-to-end Pub/Sub run** — that
-confirmation will flip Phase 1 to complete in the roadmap above.
+Phase 0 (scaffolding) is complete. Phases 1 and 2 are both in progress: both have been
+built, unit-tested, and confirmed against real end-to-end runs (against real Pub/Sub
+and real Dataflow, respectively) — neither is flagged complete in the roadmap above yet
+pending final sign-off. See `docs/phase0-decisions.md`, `docs/phase1-decisions.md`, and
+`docs/phase2-decisions.md` for the engineering decisions behind each.
 
 - `data/raw/creditcard.csv` is downloaded locally (git-ignored) and explored in
   `notebooks/01_eda.ipynb` and `notebooks/02_generic_skeleton.ipynb`; see
   `docs/data-dictionary.md` and `docs/eda-strategies.md`
 - `src/fraud_pipeline/ingestion/producer.py` replays the dataset as a simulated stream —
-  see "Running the producer" below
-- Everything from Phase 2 onward (feature engineering, model training, scoring, storage,
-  drift monitoring, the dashboard) is **not started**
+  see "Running the producer" below. A full real run (all 284,807 rows) has completed
+  successfully against live Pub/Sub.
+- `src/fraud_pipeline/features/pipeline.py` is a Beam pipeline computing windowed,
+  per-account velocity features (transaction count/amount over sliding windows, time
+  since the account's last transaction) and republishing them to a second Pub/Sub topic
+  — confirmed against a real Dataflow run with live data flowing through it end to end.
+  See "Running the feature pipeline" below.
+- Everything from Phase 3 onward (model training, scoring, storage, drift monitoring,
+  the dashboard) is **not started**
 
 ## Setup
 
@@ -124,6 +131,53 @@ python -m fraud_pipeline.ingestion.producer --duration-minutes 10
 Other flags: `--input` (CSV path, default `data/raw/creditcard.csv`), `--num-accounts`
 (default 2000), `--seed` (default 42, for reproducible account assignment).
 
+## Running the feature pipeline
+
+`src/fraud_pipeline/features/pipeline.py` reads the raw transaction stream from Pub/Sub,
+computes per-account velocity features over sliding windows (transaction count, total
+and mean amount, time since that account's last transaction — a stateful feature that
+persists across windows), and republishes the results to a second Pub/Sub topic
+(`featurized-transactions` by default) for Phase 4 to consume later.
+
+Requires `GCP_PROJECT_ID`, `PUBSUB_TOPIC`, and `GCS_BUCKET_NAME` set (`.env` or the
+environment) — Dataflow needs the bucket for staging/temp files, in addition to the
+Pub/Sub setup the producer needed.
+
+```bash
+python -m fraud_pipeline.features.pipeline \
+  --window-size-seconds 30 --window-period-seconds 10
+```
+
+Defaults to `--runner DataflowRunner`, which deploys a **real, continuously billed**
+streaming job on GCP. Pass `--runner DirectRunner` instead to run the same pipeline
+locally against the real Pub/Sub topic, at no cost, for development/testing.
+
+**Launch order matters.** Like the debug subscription earlier, `ReadFromPubSub` only
+creates its subscription once the job starts, so it only sees messages published
+*after* that point — launch the pipeline *before* running the producer, not after:
+
+1. Launch the pipeline (see below for auto-stop) and wait for it to reach `RUNNING`
+   (check the Dataflow console link printed at startup, or see `--auto-stop-seconds`).
+2. *Then* run the producer — a small `--limit` smoke test is enough to prove the
+   pipeline works end to end; no need for the full replay.
+3. Check `featurized-transactions` for output (same `gcloud pubsub subscriptions
+   create`/`pull` pattern as `docs/commands.md` describes for the raw topic).
+
+**Auto-stop, so a job is never accidentally left running:**
+
+```bash
+python -m fraud_pipeline.features.pipeline --auto-stop-seconds 120
+```
+
+This submits the job, polls `gcloud dataflow jobs describe` until it reaches
+`RUNNING`, lets it run for the given duration, then cancels it automatically — run the
+producer during that window. Omit the flag to submit and exit immediately, leaving the
+job running until you stop it yourself:
+
+```bash
+gcloud dataflow jobs cancel <job-id> --region us-central1
+```
+
 ## Tech stack
 
 **In use now:**
@@ -131,12 +185,12 @@ Other flags: `--input` (CSV path, default `data/raw/creditcard.csv`), `--num-acc
 - pandas, numpy
 - python-dotenv
 - google-cloud-pubsub
+- apache-beam[gcp] / Google Cloud Dataflow
 - pytest
 - ruff (lint + format)
 
 **Introduced in later phases** (see [`docs/future-dependencies.md`](docs/future-dependencies.md)
 for exactly when and why):
-- Apache Beam / Google Cloud Dataflow — streaming ingestion & feature engineering
 - Google Cloud BigQuery — storage, querying, and alerting
 - Google Cloud Composer — orchestration of offline/batch jobs
 - Google Cloud Run — serving the dashboard
