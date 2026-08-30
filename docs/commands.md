@@ -41,18 +41,46 @@ print(kagglehub.dataset_download('mlg-ulb/creditcardfraud'))
 jupyter lab   # open notebooks/01_eda.ipynb, 02_generic_skeleton.ipynb, etc.
 ```
 
-## GCP / Pub/Sub setup
+## GCP setup — dedicated project
+
+This project uses its own dedicated GCP project, not a shared one — keeps its cloud
+footprint fully separate from any other work.
 
 ```bash
 gcloud auth login                          # CLI auth (gcloud commands)
 gcloud auth application-default login       # ADC (what the Python client library uses)
+
+gcloud projects create <PROJECT_ID> --name="Fraud Detection Pipeline"
 gcloud config set project <PROJECT_ID>
-gcloud services enable pubsub.googleapis.com
+gcloud auth application-default set-quota-project <PROJECT_ID>
 ```
 
-If either login command fails with `invalid_grant` or similar, see the `gcloud-auth`
-skill (`~/.claude/skills/gcloud-auth/`) — re-running the matching login command usually
-fixes it.
+**Link billing** (required before any API below will actually work) — do this via the
+Console, not `gcloud billing projects link`:
+
+```
+https://console.cloud.google.com/billing/linkedaccount?project=<PROJECT_ID>
+```
+
+`gcloud billing` and `gcloud services enable` have been observed intermittently
+resolving their quota project to an unrelated, inaccessible project number, regardless
+of `--project`, `gcloud config`, or ADC's `quota_project_id` all being set correctly —
+a gcloud CLI quirk, not a real permissions problem. If `gcloud billing projects link`
+fails with a `cloudbilling.googleapis.com` error mentioning a project number that
+isn't yours, that's this — use the Console link above instead.
+
+```bash
+gcloud services enable pubsub.googleapis.com --project=<PROJECT_ID>
+gcloud services enable dataflow.googleapis.com --project=<PROJECT_ID>
+gcloud services enable storage.googleapis.com --project=<PROJECT_ID>
+```
+
+Enable one API per call — batching multiple in one `gcloud services enable` command
+has also been observed hitting the same quota-resolution quirk.
+
+If any `gcloud auth` step itself fails with `invalid_grant` or similar, see the
+`gcloud-auth` skill (`~/.claude/skills/gcloud-auth/`) — re-running the matching login
+command usually fixes it.
 
 ## Running the producer
 
@@ -87,6 +115,11 @@ gcloud pubsub subscriptions pull transactions-debug \
 echo "<base64 data>" | base64 -d | python3 -m json.tool
 ```
 
+Use `--format=json` for the pull, not `--format="value(message.data)"` — the latter has
+repeatedly failed to produce valid base64 on this setup (silent formatting issue, not a
+real decode error). `--format=json` and pulling `.message.data` out of the result
+works reliably.
+
 ## Running the feature pipeline (Dataflow)
 
 Requires `GCS_BUCKET_NAME` in `.env` in addition to the Pub/Sub setup above. **Launch
@@ -94,8 +127,6 @@ before the producer** — like the debug subscription, the pipeline only sees me
 published after it starts.
 
 ```bash
-gcloud services enable dataflow.googleapis.com --project=<PROJECT_ID>
-
 # Auto-stop after N seconds -- run the producer during that window
 python -m fraud_pipeline.features.pipeline --auto-stop-seconds 120
 

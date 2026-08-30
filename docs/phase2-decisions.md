@@ -79,14 +79,43 @@ was actually needed, rather than staying "planned for later" while already being
 ## GCP infra: dedicated staging bucket, not a reused existing one
 
 A new bucket (`<project-id>-fraud-dataflow`) was created specifically for Dataflow
-staging/temp files, even though the shared GCP project already had several other
-buckets from unrelated prior work (an old Cloud Composer environment, App Engine
-defaults, an ETL bucket).
+staging/temp files, even though the GCP project this initially ran in already had
+several other buckets from unrelated prior work (an old Cloud Composer environment,
+App Engine defaults, an ETL bucket).
 
 **Why:** reusing an unrelated existing bucket would couple this project's Dataflow
 staging artifacts to infrastructure with a different purpose and lifecycle. A
 dedicated bucket keeps this project's cloud footprint identifiable and cleanly
-removable later without affecting anything else in the shared project.
+removable — which mattered again shortly afterward, when the project-level isolation
+below happened.
+
+## Later: migrated off the shared GCP project entirely
+
+Phase 1 and Phase 2 were originally both built against an existing, shared GCP project
+that also carried real, unrelated infrastructure from other work (the ETL bucket,
+Cloud Composer, Dataproc, BigQuery, Cloud SQL, ~50 enabled APIs). All fraud-pipeline
+resources (the Pub/Sub topics, the Dataflow staging bucket) were later migrated to a
+newly created, fully dedicated GCP project, and removed from the shared one.
+
+**Why:** the dedicated-bucket decision above reduced blast radius but didn't eliminate
+it — the pipeline was still one `gcloud` mistake away from touching resources it had
+no business touching, and there was no way to reason about "everything this project
+uses in GCP" without first mentally filtering out someone else's infrastructure.
+Project-level isolation makes that reasoning trivial: everything under the dedicated
+project *is* the fraud pipeline's cloud footprint, full stop. Nothing in the codebase
+needed to change to support this — `producer.py` and `pipeline.py` both read
+`GCP_PROJECT_ID`, `PUBSUB_TOPIC`, and `GCS_BUCKET_NAME` from the environment rather
+than hardcoding them, so the migration was purely a `.env` change plus recreating the
+same resources under the new project ID.
+
+**A real gotcha hit during the migration, worth knowing about**: `gcloud billing` and
+`gcloud services enable` intermittently resolved their quota project to an unrelated,
+inaccessible project number regardless of `--project` flags, `gcloud config`, or ADC's
+own `quota_project_id` (all of which were correctly set) — a gcloud CLI quirk, not a
+permissions problem with the actual target project. Billing linkage had to be done
+once through the Cloud Console UI instead of `gcloud billing projects link`; once
+billing was active, plain `gcloud services enable <api> --project=<id>` (one API per
+call, not batched) worked normally.
 
 ## Output topic had to be created manually — `WriteToPubSub` doesn't auto-create
 
