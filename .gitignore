@@ -31,6 +31,10 @@ data/processed/*
 !data/raw/.gitkeep
 !data/processed/.gitkeep
 
+# Trained models (Phase 3+) -- anchored to the project root; a bare "models/" would
+# also match src/fraud_pipeline/models/ and tests/models/, silently excluding real code
+/models/
+
 # Editors / OS
 .DS_Store
 .idea/

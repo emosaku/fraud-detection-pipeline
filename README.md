@@ -55,7 +55,8 @@ None of the above is wired up yet — see "Current state" below.
 | 0 | Project scaffolding, tooling, environment | **Complete** |
 | 1 | Simulated transaction-stream producer replaying a public fraud dataset | **In progress** |
 | 2 | Streaming ingestion + windowed feature engineering (Pub/Sub + Dataflow/Beam) | **In progress** |
-| 3 | Offline anomaly/fraud model development (Isolation Forest, autoencoder, XGBoost comparison) | Not started |
+| 3a | Offline model comparison on raw features (Isolation Forest, Mahalanobis, XGBoost, Autoencoder) | **In progress** |
+| 3b | Retrain the winning approach(es) on Phase 2's windowed features | Not started |
 | 4 | Real-time scoring | Not started |
 | 5 | Storage + alerting (BigQuery) | Not started |
 | 6 | Drift detection & retraining triggers | Not started |
@@ -63,11 +64,12 @@ None of the above is wired up yet — see "Current state" below.
 
 ## Current state
 
-Phase 0 (scaffolding) is complete. Phases 1 and 2 are both in progress: both have been
-built, unit-tested, and confirmed against real end-to-end runs (against real Pub/Sub
-and real Dataflow, respectively) — neither is flagged complete in the roadmap above yet
-pending final sign-off. See `docs/phase0-decisions.md`, `docs/phase1-decisions.md`, and
-`docs/phase2-decisions.md` for the engineering decisions behind each.
+Phase 0 (scaffolding) is complete. Phases 1, 2, and 3a are all in progress: each has
+been built, unit-tested, and executed end to end (real Pub/Sub, real Dataflow, and a
+fully executed comparison notebook, respectively) — none is flagged complete in the
+roadmap above yet pending final sign-off. See `docs/phase0-decisions.md`,
+`docs/phase1-decisions.md`, `docs/phase2-decisions.md`, and `docs/phase3-decisions.md`
+for the engineering decisions behind each.
 
 - `data/raw/creditcard.csv` is downloaded locally (git-ignored) and explored in
   `notebooks/01_eda.ipynb` and `notebooks/02_generic_skeleton.ipynb`; see
@@ -80,8 +82,20 @@ pending final sign-off. See `docs/phase0-decisions.md`, `docs/phase1-decisions.m
   since the account's last transaction) and republishing them to a second Pub/Sub topic
   — confirmed against a real Dataflow run with live data flowing through it end to end.
   See "Running the feature pipeline" below.
-- Everything from Phase 3 onward (model training, scoring, storage, drift monitoring,
-  the dashboard) is **not started**
+- **Phase 3a** (offline model comparison, raw features) is in progress:
+  `src/fraud_pipeline/models/` has a shared evaluation harness plus all four originally
+  planned methods — Isolation Forest, Mahalanobis distance (robust `MinCovDet`
+  covariance), XGBoost, and a PyTorch autoencoder (trained on legitimate transactions
+  only) — all compared against a re-scored IQR baseline in one five-row table in
+  `notebooks/03_phase3a_comparison.ipynb`. Trained models save to
+  `models/<name>/<date>/` (git-ignored). Phase 3a can be considered complete once
+  that table has been reviewed and signed off.
+- **Phase 3b** — retraining whichever Phase 3a approach(es) look most promising on
+  Phase 2's windowed features instead of raw ones — is not started. It needs a join
+  between `featurized-transactions` output and `ground_truth.jsonl` by account/window,
+  plus a window-level fraud-label rule, neither of which exists yet.
+- Everything from Phase 4 onward (real-time scoring, storage, drift monitoring, the
+  dashboard) is **not started**
 
 ## Setup
 
@@ -178,6 +192,22 @@ job running until you stop it yourself:
 gcloud dataflow jobs cancel <job-id> --region us-central1
 ```
 
+## Running the model comparison
+
+`notebooks/03_phase3a_comparison.ipynb` trains and evaluates Isolation Forest,
+Mahalanobis distance, XGBoost, and a PyTorch autoencoder on `data/raw/creditcard.csv`
+(all V1-V28 + Amount, a temporal 70/30 train/test split), plus a re-scored version of
+the IQR baseline from `01_eda.ipynb` so all five appear on equal footing. No GCP
+required — everything here is local/offline.
+
+```bash
+jupyter nbconvert --to notebook --execute --inplace notebooks/03_phase3a_comparison.ipynb
+```
+
+Or open it in Jupyter/JupyterLab and run all cells. Trained models are saved to
+`models/<name>/<date>/` (git-ignored) each time it runs — `model.pkl`+`metadata.json`
+for the first three, `model.pt`+`scaler.pkl`+`metadata.json` for the autoencoder.
+
 ## Tech stack
 
 **In use now:**
@@ -186,6 +216,9 @@ gcloud dataflow jobs cancel <job-id> --region us-central1
 - python-dotenv
 - google-cloud-pubsub
 - apache-beam[gcp] / Google Cloud Dataflow
+- scikit-learn — Isolation Forest, Mahalanobis (MinCovDet), evaluation metrics
+- XGBoost — supervised fraud classifier baseline
+- PyTorch — autoencoder (trained on legitimate transactions only)
 - pytest
 - ruff (lint + format)
 
@@ -194,9 +227,7 @@ for exactly when and why):
 - Google Cloud BigQuery — storage, querying, and alerting
 - Google Cloud Composer — orchestration of offline/batch jobs
 - Google Cloud Run — serving the dashboard
-- scikit-learn — Isolation Forest and general model tooling
-- pyod — autoencoder and other anomaly detection algorithms
-- XGBoost — supervised fraud classifier, for comparison against unsupervised methods
+- pyod — autoencoder, in the Phase 3a follow-up pass
 - Streamlit — dashboard UI
 
 ## Project layout
@@ -206,7 +237,7 @@ fraud-detection-pipeline/
 ├── src/fraud_pipeline/       # installable package
 │   ├── ingestion/            # Phase 1-2: stream producer + Pub/Sub consumption
 │   ├── features/             # Phase 2: windowed feature engineering
-│   ├── models/                # Phase 3: offline model development
+│   ├── models/                # Phase 3a-b: offline model development
 │   ├── scoring/               # Phase 4: real-time scoring
 │   ├── storage/                # Phase 5: BigQuery storage + alerting
 │   ├── monitoring/             # Phase 6: drift detection & retraining triggers
@@ -216,6 +247,7 @@ fraud-detection-pipeline/
 ├── data/
 │   ├── raw/                     # git-ignored
 │   └── processed/                # git-ignored
+├── models/                      # trained model artifacts, git-ignored (Phase 3+)
 ├── docs/                        # design notes
 ├── pyproject.toml
 ├── .env.example

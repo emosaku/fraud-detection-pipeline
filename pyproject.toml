@@ -15,6 +15,9 @@ dependencies = [
     "python-dotenv",
     "google-cloud-pubsub",
     "apache-beam[gcp]",
+    "scikit-learn",
+    "xgboost",
+    "torch",
 ]
 
 [project.optional-dependencies]
