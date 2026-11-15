@@ -138,10 +138,56 @@ gcloud dataflow jobs cancel <job-id> --region us-central1
 python -m fraud_pipeline.features.pipeline --runner DirectRunner
 ```
 
-## Resetting ground truth between runs
+## Generating a Phase 3b training dataset
 
-`data/processed/ground_truth.jsonl` is append-only — the producer never clears it.
+Use the batch builder. It runs the streaming pipeline's own windowing transform over the
+CSV, so the windows are complete and reproducible, with no Pub/Sub or Dataflow needed:
 
 ```bash
-rm -f data/processed/ground_truth.jsonl   # start a clean run
+python -m fraud_pipeline.features.batch --duration-minutes 10
+# -> data/processed/windowed_features_batch.jsonl
+```
+
+Then load it and join labels by transaction ID (this is what
+`notebooks/04_phase3b_windowed_retrain.ipynb` does):
+
+```python
+from fraud_pipeline.ingestion.producer import load_and_prepare
+from fraud_pipeline.ingestion.loader import RAW_DATA_PATH
+from fraud_pipeline.models.windowed_dataset import (
+    load_jsonl, check_window_coverage, scoring_windows,
+)
+
+windows = load_jsonl("data/processed/windowed_features_batch.jsonl")
+transactions = load_and_prepare(str(RAW_DATA_PATH), None, num_accounts=2000, seed=42)
+check_window_coverage(windows, transactions["transaction_id"], 30, 10)
+velocity = scoring_windows(windows)  # one row per transaction_id
+```
+
+### Capturing a live run (inspection only)
+
+`capture_featurized_transactions.py` still works for looking at what a live pipeline
+emits, but **don't train on its output**: a live capture misses windows depending on
+subscription timing and capture duration, which is what invalidated Phase 3b's first
+dataset (see `docs/phase3-decisions.md`). Launch order:
+
+```bash
+# 1. Feature pipeline first (DirectRunner -- free, local, no Dataflow job)
+python -m fraud_pipeline.features.pipeline --runner DirectRunner \
+  --window-size-seconds 30 --window-period-seconds 10 &
+
+# 2. Capture, bounded longer than the producer run plus a buffer
+python -m fraud_pipeline.models.capture_featurized_transactions --duration-seconds 570 &
+
+# 3. Producer (writes ground_truth.jsonl as it goes)
+python -m fraud_pipeline.ingestion.producer --duration-minutes 8
+```
+
+## Resetting ground truth between runs
+
+`data/processed/ground_truth.jsonl` and `data/processed/featurized_transactions.jsonl`
+are both append-only — nothing in this project clears them automatically.
+
+```bash
+rm -f data/processed/ground_truth.jsonl data/processed/featurized_transactions.jsonl
 ```

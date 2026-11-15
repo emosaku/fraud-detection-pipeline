@@ -60,7 +60,13 @@ class ComputeTimeSinceLastTxn(beam.DoFn):
 
 
 class ComputeVelocityFeatures(beam.DoFn):
-    """Aggregates one account's transactions within one sliding window into a feature record."""
+    """Aggregates one account's transactions within one sliding window into a feature record.
+
+    `transaction_ids` lists exactly which transactions the window aggregated, so labels can
+    be joined by ID rather than by re-deriving window membership from timestamps -- the
+    time-range join is what let Phase 3b's first capture label windows using hundreds of
+    transactions the pipeline never actually saw.
+    """
 
     def process(self, element, window=beam.DoFn.WindowParam):
         account_id, records = element
@@ -79,12 +85,43 @@ class ComputeVelocityFeatures(beam.DoFn):
             "min_seconds_since_last_txn": _min_or_none(
                 r["seconds_since_last_txn"] for r in records
             ),
+            "transaction_ids": sorted(r["transaction_id"] for r in records),
         }
 
 
 def _min_or_none(values):
     present = [v for v in values if v is not None]
     return round(min(present), 3) if present else None
+
+
+class WindowedVelocityFeatures(beam.PTransform):
+    """Sliding-window aggregation shared by the streaming pipeline and the batch builder
+    (`fraud_pipeline.features.batch`), so training features and served features come from
+    the same windowing and the same aggregation code.
+
+    Input: `(account_id, record)` pairs whose element timestamps are the event time and
+    whose records already carry `seconds_since_last_txn`.
+    """
+
+    def __init__(
+        self,
+        window_size_seconds: float = DEFAULT_WINDOW_SIZE_SECONDS,
+        window_period_seconds: float = DEFAULT_WINDOW_PERIOD_SECONDS,
+    ):
+        super().__init__()
+        self.window_size_seconds = window_size_seconds
+        self.window_period_seconds = window_period_seconds
+
+    def expand(self, keyed_records):
+        return (
+            keyed_records
+            | "Window"
+            >> beam.WindowInto(
+                window.SlidingWindows(self.window_size_seconds, self.window_period_seconds)
+            )
+            | "GroupByAccount" >> beam.GroupByKey()
+            | "ComputeVelocityFeatures" >> beam.ParDo(ComputeVelocityFeatures())
+        )
 
 
 def build_pipeline(
@@ -100,10 +137,8 @@ def build_pipeline(
         | "ParseJSON" >> beam.ParDo(ParseMessage())
         | "KeyByAccount" >> beam.Map(lambda r: (r["account_id"], r))
         | "AddTimeSinceLastTxn" >> beam.ParDo(ComputeTimeSinceLastTxn())
-        | "Window"
-        >> beam.WindowInto(window.SlidingWindows(window_size_seconds, window_period_seconds))
-        | "GroupByAccount" >> beam.GroupByKey()
-        | "ComputeVelocityFeatures" >> beam.ParDo(ComputeVelocityFeatures())
+        | "WindowedVelocityFeatures"
+        >> WindowedVelocityFeatures(window_size_seconds, window_period_seconds)
         | "FormatJSON" >> beam.Map(lambda d: json.dumps(d).encode("utf-8"))
         | "WriteToPubSub" >> beam.io.WriteToPubSub(topic=output_topic)
     )

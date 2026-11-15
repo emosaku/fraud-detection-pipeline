@@ -55,8 +55,8 @@ None of the above is wired up yet — see "Current state" below.
 | 0 | Project scaffolding, tooling, environment | **Complete** |
 | 1 | Simulated transaction-stream producer replaying a public fraud dataset | **In progress** |
 | 2 | Streaming ingestion + windowed feature engineering (Pub/Sub + Dataflow/Beam) | **In progress** |
-| 3a | Offline model comparison on raw features (Isolation Forest, Mahalanobis, XGBoost, Autoencoder) | **In progress** |
-| 3b | Retrain the winning approach(es) on Phase 2's windowed features | Not started |
+| 3a | Offline model comparison on raw features (Isolation Forest, Mahalanobis, XGBoost, Autoencoder) | **Complete** |
+| 3b | Retrain the winning approach on Phase 2's windowed features | **Complete** |
 | 4 | Real-time scoring | Not started |
 | 5 | Storage + alerting (BigQuery) | Not started |
 | 6 | Drift detection & retraining triggers | Not started |
@@ -64,12 +64,14 @@ None of the above is wired up yet — see "Current state" below.
 
 ## Current state
 
-Phase 0 (scaffolding) is complete. Phases 1, 2, and 3a are all in progress: each has
-been built, unit-tested, and executed end to end (real Pub/Sub, real Dataflow, and a
-fully executed comparison notebook, respectively) — none is flagged complete in the
-roadmap above yet pending final sign-off. See `docs/phase0-decisions.md`,
-`docs/phase1-decisions.md`, `docs/phase2-decisions.md`, and `docs/phase3-decisions.md`
-for the engineering decisions behind each.
+Phases 0 (scaffolding), 3a (offline model comparison) and 3b (windowed-feature
+retrain) are complete. Phases 1 and 2 are in progress: both have been built,
+unit-tested, and executed end to end against real Pub/Sub and Dataflow, but aren't
+flagged complete pending final sign-off. Open work is tracked in
+[`docs/backlog.md`](docs/backlog.md). See `docs/phase0-decisions.md`, `docs/phase1-decisions.md`,
+`docs/phase2-decisions.md`, `docs/phase3-decisions.md`, and `docs/phase3-overview.md`
+(a narrative deep-dive on the whole of Phase 3) for the engineering decisions and
+reasoning behind each.
 
 - `data/raw/creditcard.csv` is downloaded locally (git-ignored) and explored in
   `notebooks/01_eda.ipynb` and `notebooks/02_generic_skeleton.ipynb`; see
@@ -82,18 +84,26 @@ for the engineering decisions behind each.
   since the account's last transaction) and republishing them to a second Pub/Sub topic
   — confirmed against a real Dataflow run with live data flowing through it end to end.
   See "Running the feature pipeline" below.
-- **Phase 3a** (offline model comparison, raw features) is in progress:
+- **Phase 3a** (offline model comparison, raw features) is complete:
   `src/fraud_pipeline/models/` has a shared evaluation harness plus all four originally
   planned methods — Isolation Forest, Mahalanobis distance (robust `MinCovDet`
   covariance), XGBoost, and a PyTorch autoencoder (trained on legitimate transactions
   only) — all compared against a re-scored IQR baseline in one five-row table in
   `notebooks/03_phase3a_comparison.ipynb`. Trained models save to
-  `models/<name>/<date>/` (git-ignored). Phase 3a can be considered complete once
-  that table has been reviewed and signed off.
-- **Phase 3b** — retraining whichever Phase 3a approach(es) look most promising on
-  Phase 2's windowed features instead of raw ones — is not started. It needs a join
-  between `featurized-transactions` output and `ground_truth.jsonl` by account/window,
-  plus a window-level fraud-label rule, neither of which exists yet.
+  `models/<name>/<date>/` (git-ignored).
+- **Phase 3b** (retraining XGBoost, Phase 3a's clear winner, on Phase 2's windowed
+  features) is complete. `src/fraud_pipeline/features/batch.py` rebuilds the windowed
+  features from the CSV with the same transform the streaming pipeline uses, and
+  `src/fraud_pipeline/models/windowed_dataset.py` joins labels by transaction ID.
+  `notebooks/04_phase3b_windowed_retrain.ipynb` has the results. In this simulation the
+  velocity features carry no fraud signal (synthetic accounts are assigned at random),
+  so **no windowed model is kept: Phase 3a's raw-feature XGBoost is the model to serve.**
+  A first pass reported a ~20% positive rate and a weaker windowed model; that dataset
+  turned out to be invalid and those numbers are superseded. See
+  `docs/phase3-overview.md`.
+- A tuning pass for the unsupervised Phase 3a models (validation split, Isolation
+  Forest grid, Mahalanobis re-check) is planned in
+  `docs/phase3-unsupervised-optimization.md` but not yet run.
 - Everything from Phase 4 onward (real-time scoring, storage, drift monitoring, the
   dashboard) is **not started**
 
@@ -208,6 +218,20 @@ Or open it in Jupyter/JupyterLab and run all cells. Trained models are saved to
 `models/<name>/<date>/` (git-ignored) each time it runs — `model.pkl`+`metadata.json`
 for the first three, `model.pt`+`scaler.pkl`+`metadata.json` for the autoencoder.
 
+## Building the windowed training features (batch)
+
+Phase 3b's training data comes from a bounded Beam run over the CSV, not a live capture.
+No GCP needed:
+
+```bash
+python -m fraud_pipeline.features.batch --duration-minutes 10
+```
+
+This writes `data/processed/windowed_features_batch.jsonl` (git-ignored), which
+`notebooks/04_phase3b_windowed_retrain.ipynb` reads. `--duration-minutes` should match
+the producer replay you want to reproduce; window size/period, seed and account count
+default to the same values as the streaming path.
+
 ## Tech stack
 
 **In use now:**
@@ -227,7 +251,6 @@ for exactly when and why):
 - Google Cloud BigQuery — storage, querying, and alerting
 - Google Cloud Composer — orchestration of offline/batch jobs
 - Google Cloud Run — serving the dashboard
-- pyod — autoencoder, in the Phase 3a follow-up pass
 - Streamlit — dashboard UI
 
 ## Project layout

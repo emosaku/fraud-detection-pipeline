@@ -51,9 +51,9 @@ def test_compute_time_since_last_txn_first_seen_is_none():
 def test_compute_velocity_features_aggregates_correctly():
     with TestPipeline() as p:
         elements = [
-            ("ACCT-1", {"amount": 10.0, "seconds_since_last_txn": None}),
-            ("ACCT-1", {"amount": 20.0, "seconds_since_last_txn": 5.0}),
-            ("ACCT-1", {"amount": 30.0, "seconds_since_last_txn": 2.0}),
+            ("ACCT-1", {"transaction_id": 7, "amount": 10.0, "seconds_since_last_txn": None}),
+            ("ACCT-1", {"transaction_id": 3, "amount": 20.0, "seconds_since_last_txn": 5.0}),
+            ("ACCT-1", {"transaction_id": 5, "amount": 30.0, "seconds_since_last_txn": 2.0}),
         ]
         # Route through a real window, same as the pipeline does -- ComputeVelocityFeatures
         # reads window.start/window.end, which only exist meaningfully post-windowing.
@@ -78,5 +78,6 @@ def test_compute_velocity_features_aggregates_correctly():
             assert record["total_amount"] == 60.0
             assert record["mean_amount"] == 20.0
             assert record["min_seconds_since_last_txn"] == 2.0
+            assert record["transaction_ids"] == [3, 5, 7]
 
         assert_that(result, check)

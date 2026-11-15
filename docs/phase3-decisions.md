@@ -4,7 +4,8 @@ Scope: `src/fraud_pipeline/models/` — offline comparison of Isolation Forest,
 Mahalanobis distance, XGBoost, and an autoencoder on the raw dataset features, plus a
 shared evaluation harness. Status: built, unit-tested, and executed end to end in
 `notebooks/03_phase3a_comparison.ipynb` with all five methods (including the re-scored
-IQR baseline) in one comparison table; not yet flagged complete pending final sign-off.
+IQR baseline) in one comparison table. **Complete.** A follow-up tuning pass for the
+unsupervised models is planned in `docs/phase3-unsupervised-optimization.md`.
 Phase 3b (retraining on Phase 2's windowed features) is explicitly out of scope here.
 
 ## All 29 features, not the EDA's 6-feature Cohen's d ranking
@@ -245,3 +246,112 @@ second OpenMP runtime into any process that imports it, so it's the natural plac
 the fix to live regardless of import order, and it protects any future code (tests,
 scripts, notebooks) that imports both this module and XGBoost together without
 requiring each of them to remember this gotcha independently.
+
+---
+
+# Phase 3b — Engineering Decisions
+
+Scope: `src/fraud_pipeline/features/batch.py`, `src/fraud_pipeline/models/windowed_dataset.py`
+and `notebooks/04_phase3b_windowed_retrain.ipynb`: building labeled datasets from Phase
+2's windowed features and testing whether they help XGBoost detect fraud. Status:
+**complete** (signed off 2026-11-14). See `docs/phase3-overview.md` for the narrative.
+
+**Outcome in one line:** velocity features carry no fraud signal in this simulation, no
+windowed model is kept, and the Phase 3a raw-feature XGBoost stays the model to serve.
+
+## Real bug: the first dataset was invalid (time-range join)
+
+The first pass captured `featurized-transactions` from a live streaming run and labeled
+each window by joining `ground_truth.jsonl` on account and time range. The captured
+windows held only about **0.6%** of the transactions their labels counted: a median of
+1 transaction per window, against 37 in ground truth for the same account and time
+range. Most labels therefore described transactions the features never saw. The
+results that pass reported (a 20.06% positive rate, "116x inflation", ROC-AUC 0.79,
+PR-AUC 0.60) are **superseded** and should not be quoted.
+
+**Fixed by:**
+- `ComputeVelocityFeatures` now emits `transaction_ids`, the exact transactions each
+  window aggregated, and labels join by ID instead of re-deriving membership from
+  timestamps.
+- `check_window_coverage` raises unless every transaction appears in exactly
+  `size / period` windows (3, for 30-second windows every 10 seconds) and every window's
+  `transaction_count` matches the IDs it lists. The first capture would have failed it.
+
+## Batch builder instead of a live capture
+
+`fraud_pipeline.features.batch` runs the same windowing and aggregation code as the
+streaming pipeline (the shared `WindowedVelocityFeatures` transform in `pipeline.py`)
+over the CSV as bounded input. It reproduces the producer's compressed replay clock
+exactly, so a 30-second window covers the same slice of data a live replay of the same
+`--duration-minutes` would.
+
+**Why:** a live capture depends on subscription timing and a fixed capture duration,
+and the first one missed most of the stream. Batch is complete by construction,
+deterministic on rerun, and free. Sharing one transform means training features and
+served features can't drift apart. `capture_featurized_transactions.py` stays in the
+repo for inspecting a live run, but it is no longer the way to build training data.
+
+## Label rule: window labels measure window size, so label transactions instead
+
+On the valid dataset (69,639 windows), the "any fraud in the window" rule marks 1.394%
+of windows positive, about 8x the 0.173% raw rate. The median fraud window is only 2.4%
+fraud and holds 44 transactions, so its aggregate features mostly describe legitimate
+activity. Ranking test windows by `transaction_count` alone, with no model, beats
+XGBoost trained on all four features (PR-AUC 0.378 vs 0.251). The label mostly
+encodes how busy a window is. Stricter rules leave too few positives: 132 windows at
+>= 50% fraud, 67 at 100%.
+
+**Decision:** keep each transaction's own label and attach window features as
+context. `scoring_windows` gives each transaction the features of the earliest-closing
+window that contains it, which is what a streaming scorer would have when it first
+could score that transaction. This also matches Phase 4, which scores individual
+transactions.
+
+## Result: velocity features add nothing here, and that's the simulation's doing
+
+Same temporal 70/30 split on `Time` as Phase 3a (85,439 test transactions, 108 fraud):
+
+| Features | PR-AUC | ROC-AUC |
+|---|---|---|
+| Raw V1-V28 + Amount (Phase 3a) | 0.7988 | 0.9825 |
+| Raw + velocity | 0.7922 | 0.9725 |
+| Amount only | 0.0044 | 0.6578 |
+| Velocity only | 0.0014 | 0.5070 |
+
+A random ranking scores 0.0013 PR-AUC, so velocity alone is at chance. The producer
+assigns transactions to synthetic accounts at random, independent of fraud, and the
+fraud rate is roughly flat across account-activity quintiles. There are no compromised
+accounts or bursts to find. This says nothing about velocity features in real data.
+Testing them properly needs a producer that simulates account-level fraud behavior.
+
+**No model is saved.** The `models/xgboost_windowed/2026-09-23/` artifact (git-ignored)
+was trained on the invalid capture and must not be used.
+
+## Real bug (first pass only): timezone-naive vs. timezone-aware timestamp comparison
+
+This and the next bug were in the retired time-range join. The timezone code no longer
+exists; the `ISO8601` parse fix is still used in `scoring_windows`.
+
+`ground_truth.jsonl`'s `event_time` carries an explicit UTC offset (the producer
+writes `datetime.now(UTC).isoformat()`); `featurized-transactions`' `window_start`/
+`window_end` do not (Beam's `Timestamp.to_utc_datetime()` defaults to `has_tz=False`
+in `pipeline.py`). Comparing them directly raised `TypeError: Cannot compare
+tz-naive and tz-aware datetime-like objects`.
+
+**Caught by:** real data, not the original synthetic tests — those happened to use
+naive timestamps on both sides and never exercised the mismatch. Fixed by making
+`event_time` naive (both are UTC, so this is safe) before comparing. That code and its
+regression test were removed along with the time-range join.
+
+## Real bug: inconsistent fractional-second precision at real scale
+
+`datetime.now(UTC).isoformat()` omits the fractional-seconds component entirely
+whenever the microsecond happens to land on exactly zero — rare enough that it never
+appeared in any dataset smaller than real scale, but guaranteed to eventually occur
+across 284,807 timestamp generations. This broke pandas' fixed-format datetime
+parser partway through parsing a real `ground_truth.jsonl`, well past where any
+small test fixture would have caught it.
+
+**Fixed by:** passing `format="ISO8601"` to `pd.to_datetime` explicitly (handles
+variable ISO8601 formatting per-element) rather than relying on format inference from
+the first few rows.
