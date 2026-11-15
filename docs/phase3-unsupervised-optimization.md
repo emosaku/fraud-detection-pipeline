@@ -11,7 +11,7 @@ Yes, these models need optimization. Isolation Forest is the top priority, and M
 - **Autoencoder** uses proper early stopping, but its learning rate, batch size and bottleneck width were never varied, and most of them aren't saved in its metadata.
 - **Evaluation** has no validation split, so all tuning and threshold choices so far rely on test-set labels.
 
-Nothing here has been run yet. The impact of tuning Isolation Forest is a hypothesis to test, not a measured result.
+**Update, Nov 14, 2026:** this plan has been run. Results: [`phase3a-tuning-results.md`](phase3a-tuning-results.md). Isolation Forest roughly doubled (0.04 to 0.07), the autoencoder improved modestly, and the Mahalanobis result held up on a proper validation split.
 
 ## How well each parameter is applied
 
@@ -62,12 +62,12 @@ The main metric for model selection is PR-AUC. At about 0.2% fraud, ROC-AUC is d
 
 The quickest useful check is a sweep of `max_samples` for Isolation Forest. It takes a few minutes and shows whether the defaults explain its 0.04 PR-AUC.
 
-- [ ] Quick check: sweep Isolation Forest `max_samples` over 256, 1024, 4096 and 0.1, and see whether PR-AUC improves noticeably
-- [ ] Add the train / validation / test split to the Phase 3a notebook
-- [ ] Run the Isolation Forest grid over 3–5 seeds
-- [ ] Redo the Mahalanobis shrinkage comparison on the validation split
-- [ ] Save all autoencoder hyperparameters in `metadata.json`
-- [ ] Re-run the comparison table on the test set once and update `docs/phase3-overview.md`
+- [x] Quick check: sweep Isolation Forest `max_samples` over 256, 1024, 4096 and 0.1, and see whether PR-AUC improves noticeably
+- [x] Add the train / validation / test split (done in `src/fraud_pipeline/models/tuning.py`; notebook 03 stays the original baseline)
+- [x] Run the Isolation Forest grid over 3–5 seeds
+- [x] Redo the Mahalanobis shrinkage comparison on the validation split
+- [x] Save all autoencoder hyperparameters in `metadata.json`
+- [x] Re-run the comparison table on the test set once and update `docs/phase3-overview.md`
 
 Open questions:
 

@@ -101,9 +101,11 @@ reasoning behind each.
   A first pass reported a ~20% positive rate and a weaker windowed model; that dataset
   turned out to be invalid and those numbers are superseded. See
   `docs/phase3-overview.md`.
-- A tuning pass for the unsupervised Phase 3a models (validation split, Isolation
-  Forest grid, Mahalanobis re-check) is planned in
-  `docs/phase3-unsupervised-optimization.md` but not yet run.
+- A tuning pass for the unsupervised Phase 3a models ran on 2026-11-14
+  (`src/fraud_pipeline/models/tuning.py`, results in `results/phase3a/`). On a proper
+  validation split, tuning roughly doubled Isolation Forest (PR-AUC 0.04 to 0.07),
+  improved the autoencoder (about 0.11 to 0.17), and confirmed Mahalanobis's 0.53. The
+  ranking didn't change. See `docs/phase3a-tuning-results.md`.
 - Everything from Phase 4 onward (real-time scoring, storage, drift monitoring, the
   dashboard) is **not started**
 
@@ -217,6 +219,17 @@ jupyter nbconvert --to notebook --execute --inplace notebooks/03_phase3a_compari
 Or open it in Jupyter/JupyterLab and run all cells. Trained models are saved to
 `models/<name>/<date>/` (git-ignored) each time it runs — `model.pkl`+`metadata.json`
 for the first three, `model.pt`+`scaler.pkl`+`metadata.json` for the autoencoder.
+
+## Running the tuning experiment
+
+```bash
+python -m fraud_pipeline.models.tuning --stage all   # about 15 minutes on 10 cores
+```
+
+`--stage baseline` re-runs the original notebook-03 protocol and writes
+`results/phase3a/baseline.json`. `--stage tuned` runs the 60/15/25 split, the grids and
+the 5-seed final test scoring, and writes `results/phase3a/tuned.json`. Both files are
+committed, so results stay comparable over time.
 
 ## Building the windowed training features (batch)
 

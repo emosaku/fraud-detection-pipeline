@@ -1,0 +1,57 @@
+{
+  "generated_at": "2026-11-15T01:28:58.229405+00:00",
+  "git_commit": "ee7c28ecce270ceec2cf0846325ad9cfd41c1d42",
+  "stage": "baseline",
+  "protocol": "notebooks/03: 70/30 temporal split, defaults, seed 42, matched-FPR thresholds chosen on test labels",
+  "split": {
+    "train": 199368,
+    "test": 85439,
+    "test_fraud": 108
+  },
+  "iqr_features": [
+    "V14",
+    "V4",
+    "V12",
+    "V11",
+    "V10",
+    "V16"
+  ],
+  "target_fpr": 0.1451758446520022,
+  "results": {
+    "IQR baseline": {
+      "pr_auc": 0.007372896572134922,
+      "roc_auc": 0.8857454110073323,
+      "recall": 0.9166666666666666,
+      "precision": 0.007928245375190197,
+      "false_positive_rate": 0.1451758446520022
+    },
+    "Isolation Forest": {
+      "pr_auc": 0.03956929878754392,
+      "roc_auc": 0.9455623135528446,
+      "recall": 0.8888888888888888,
+      "precision": 0.0076726342710997444,
+      "false_positive_rate": 0.1455039786244155
+    },
+    "Mahalanobis (MinCovDet)": {
+      "pr_auc": 0.532720403453019,
+      "roc_auc": 0.9488546127780404,
+      "recall": 0.8611111111111112,
+      "precision": 0.00746448350589935,
+      "false_positive_rate": 0.14491802510224888
+    },
+    "XGBoost": {
+      "pr_auc": 0.7987997320353442,
+      "roc_auc": 0.9824948555450952,
+      "recall": 0.9351851851851852,
+      "precision": 0.008089707649179014,
+      "false_positive_rate": 0.14512896837022887
+    },
+    "Autoencoder": {
+      "pr_auc": 0.10628814492204214,
+      "roc_auc": 0.9371864334832073,
+      "recall": 0.8703703703703703,
+      "precision": 0.007651607651607652,
+      "false_positive_rate": 0.14286718777466573
+    }
+  }
+}

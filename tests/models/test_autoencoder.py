@@ -72,3 +72,27 @@ def test_save_and_load_artifact_round_trip(tmp_path, monkeypatch):
     np.testing.assert_allclose(
         score(scaler, model, X_test), score(loaded_scaler, loaded_model, X_test), rtol=1e-5
     )
+
+
+def test_training_info_records_every_hyperparameter():
+    X = _synthetic_data(n=200)
+    _scaler, _model, info = fit_autoencoder(
+        X, bottleneck_dim=4, learning_rate=3e-4, batch_size=64, max_epochs=2, patience=1
+    )
+    hp = info["hyperparameters"]
+    assert hp["bottleneck_dim"] == 4
+    assert hp["learning_rate"] == 3e-4
+    assert hp["batch_size"] == 64
+    assert hp["architecture"] == "29 -> 20 -> 14 -> 4 -> 14 -> 20 -> 29"
+
+
+def test_non_default_bottleneck_round_trips_through_metadata(tmp_path, monkeypatch):
+    import fraud_pipeline.models.autoencoder as ae_module
+
+    monkeypatch.setattr(ae_module, "MODELS_DIR", tmp_path)
+    X = _synthetic_data(n=200)
+    scaler, model, info = fit_autoencoder(X, bottleneck_dim=10, max_epochs=2, patience=1)
+    out_dir = save_autoencoder_artifact(model, scaler, info["hyperparameters"], metrics={})
+
+    _loaded_scaler, loaded = load_autoencoder_artifact(out_dir)
+    np.testing.assert_allclose(score(scaler, loaded, X), score(scaler, model, X), rtol=1e-6)

@@ -9,7 +9,6 @@ Last updated: 2026-11-14
 
 ## Now
 
-- [ ] **Push the Phase 3b commit** to `origin/main` (committed locally 2026-11-14).
 - [ ] **Check for a leftover Dataflow job**: `gcloud dataflow jobs list --region us-central1 --status active`.
   Phase 2 defaults to a continuously billed `DataflowRunner`.
 - [ ] **Delete the invalid model artifact** `models/xgboost_windowed/2026-09-23/` (git-ignored, trained on
@@ -17,23 +16,15 @@ Last updated: 2026-11-14
 - [ ] **Sign off Phases 1 and 2.** Both are built, tested and run end to end against real Pub/Sub and
   Dataflow; only the "complete" flag is missing.
 
-## Phase 3a follow-up: tune the unsupervised models
+## Phase 3a follow-up
 
-Plan and reasoning: [`phase3-unsupervised-optimization.md`](phase3-unsupervised-optimization.md).
-Doesn't block Phase 4 except for the validation split, which Phase 4's threshold also needs.
+Tuning is done ([`phase3a-tuning-results.md`](phase3a-tuning-results.md)). Left over:
 
-- [ ] Quick check: sweep Isolation Forest `max_samples` over 256, 1024, 4096, 0.1 and see whether its
-  0.04 PR-AUC moves
-- [ ] Add a time-based 60 / 15 / 25 train / validation / test split to the Phase 3a notebook; choose
-  thresholds on validation
-- [ ] Isolation Forest grid (`max_samples` x `n_estimators` x `max_features`, 48 configs) over 3-5 seeds
-- [ ] Mahalanobis: redo shrinkage vs none on validation; compare `EmpiricalCovariance` and `LedoitWolf`;
-  optional `RobustScaler`
-- [ ] Autoencoder: light sweep (`bottleneck_dim` 4/7/10 x `learning_rate` 1e-3/3e-4); save every
-  hyperparameter in `metadata.json`
-- [ ] Score the test set once, report mean +/- std across seeds, update `phase3-overview.md`
-- [ ] Decide: should the matched-FPR operating point stay tied to the IQR baseline's 14.5%, or move to
-  a false-positive budget?
+- [ ] Decide the alert operating point: keep matching the IQR rule's false-positive rate (now set on
+  validation, 16.3%), or set a real false-positive budget. Needed for Phase 4's threshold.
+- [ ] Optional: tune XGBoost on the validation split. It was only a reference in the tuning run.
+- [ ] Optional: check whether Mahalanobis's near-singular direction survives retraining on a later
+  time window. It's the whole signal (0.43 validation PR-AUC from that one direction).
 
 ## Phase 4: real-time scoring
 
@@ -44,7 +35,7 @@ not `featurized-transactions`.
 - [ ] Write `docs/phase4-decisions.md` before building: input topic, output schema, threshold source,
   separate Dataflow job vs a branch of the feature pipeline
 - [ ] Pick the model artifact to serve (`models/xgboost/` has 2026-08-30 and 2026-09-03) and record why
-- [ ] Choose the alert threshold on a validation split, not the test set
+- [ ] Choose the alert threshold on the validation split (`tuning.temporal_split(df, 0.60, 0.15)`), not the test set
 - [ ] `scoring/` Beam DoFn that loads the model once per worker (`setup()`) and scores each message
 - [ ] Publish scored records (transaction_id, score, flag, model version, scored_at) to a new
   `scored-transactions` topic for Phase 5
@@ -79,6 +70,12 @@ not `featurized-transactions`.
 
 ## Done
 
+- 2026-11-14: Phase 3a tuning run. Validation split, Isolation Forest grid (49 configs x 5 seeds),
+  Mahalanobis covariance variants, autoencoder sweep. Test PR-AUC: Isolation Forest 0.037 to 0.070,
+  autoencoder 0.124 to 0.170, Mahalanobis unchanged at 0.532 (shrinkage confirmed harmful).
+  Baseline and tuned results stored in `results/phase3a/`. Autoencoder metadata now records every
+  hyperparameter, and non-default bottlenecks reload correctly.
+- 2026-11-14: Phase 3b commit pushed to `origin/main`.
 - 2026-11-14: Phase 3b signed off complete. Docs corrected to the valid batch results (the first
   capture's 20% / 116x numbers are superseded); batch builder, ID join and notebook 04 committed.
 - 2026-10-10: Phase 3b re-run on complete batch windows: velocity features add no signal; no windowed

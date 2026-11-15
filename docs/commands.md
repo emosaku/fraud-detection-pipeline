@@ -191,3 +191,14 @@ are both append-only — nothing in this project clears them automatically.
 ```bash
 rm -f data/processed/ground_truth.jsonl data/processed/featurized_transactions.jsonl
 ```
+
+## Phase 3a tuning experiment
+
+```bash
+python -m fraud_pipeline.models.tuning --stage baseline   # original protocol, ~1 min
+python -m fraud_pipeline.models.tuning --stage tuned      # grids + 5-seed test, ~14 min
+python -m fraud_pipeline.models.tuning --stage tuned --seeds 3 --ae-jobs 3   # lighter run
+```
+
+Results go to `results/phase3a/{baseline,tuned}.json` (committed). Interpretation:
+`docs/phase3a-tuning-results.md`.

@@ -5,7 +5,8 @@ Mahalanobis distance, XGBoost, and an autoencoder on the raw dataset features, p
 shared evaluation harness. Status: built, unit-tested, and executed end to end in
 `notebooks/03_phase3a_comparison.ipynb` with all five methods (including the re-scored
 IQR baseline) in one comparison table. **Complete.** A follow-up tuning pass for the
-unsupervised models is planned in `docs/phase3-unsupervised-optimization.md`.
+unsupervised models ran on 2026-11-14: `docs/phase3a-tuning-results.md`. It confirmed
+the unregularized Mahalanobis decision below on a validation split.
 Phase 3b (retraining on Phase 2's windowed features) is explicitly out of scope here.
 
 ## All 29 features, not the EDA's 6-feature Cohen's d ranking

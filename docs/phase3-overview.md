@@ -111,6 +111,22 @@ A few things worth noticing that aren't obvious from the table alone:
   real gap, but not the kind of gap that makes the unsupervised methods look
   pointless — Mahalanobis gets most of the way there with zero access to labels.
 
+### After tuning (Nov 2026)
+
+The table above is a single run with defaults, and its thresholds were picked on test
+labels. A follow-up pass re-ran everything on a 60/15/25 train/validation/test split,
+tuned on validation and averaged over 5 seeds
+([`phase3a-tuning-results.md`](phase3a-tuning-results.md)). Test PR-AUC after tuning:
+Isolation Forest 0.070 (up from about 0.04), autoencoder 0.170 (up from about 0.11),
+Mahalanobis 0.532 (unchanged; every shrinkage level hurt), XGBoost 0.785 (untuned).
+The ranking held.
+
+It also explained Mahalanobis's lead. Among typical transactions the features are
+almost exactly linearly dependent, so one combined direction has nearly zero normal
+variance, and fraud lands far out along it. That one direction alone scores 0.43
+validation PR-AUC. Isolation Forest, which splits on one feature at a time, can't see
+it.
+
 ## What almost went wrong: two real numerical bugs
 
 Building Mahalanobis's `MinCovDet` fit surfaced hundreds of `RuntimeWarning:

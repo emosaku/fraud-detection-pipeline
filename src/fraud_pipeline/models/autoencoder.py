@@ -67,7 +67,9 @@ class Autoencoder(nn.Module):
         return self.decoder(self.encoder(x))
 
     def architecture_description(self) -> str:
-        dims = [INPUT_DIM, *HIDDEN_DIMS, BOTTLENECK_DIM, *reversed(HIDDEN_DIMS), INPUT_DIM]
+        bottleneck = self.encoder[-2].out_features
+        input_dim = self.encoder[0].in_features
+        dims = [input_dim, *HIDDEN_DIMS, bottleneck, *reversed(HIDDEN_DIMS), input_dim]
         return " -> ".join(str(d) for d in dims)
 
 
@@ -133,7 +135,25 @@ def fit_autoencoder(
                 break
 
     model.load_state_dict(best_state)
-    training_info = {"epochs_trained": epochs_trained, "final_val_loss": best_val_loss}
+    training_info = {
+        "epochs_trained": epochs_trained,
+        "final_val_loss": best_val_loss,
+        # Everything needed to reproduce this fit from metadata.json alone.
+        "hyperparameters": {
+            "architecture": model.architecture_description(),
+            "input_dim": int(X_fit.shape[1]),
+            "hidden_dims": list(HIDDEN_DIMS),
+            "bottleneck_dim": bottleneck_dim,
+            "learning_rate": learning_rate,
+            "batch_size": batch_size,
+            "max_epochs": max_epochs,
+            "patience": patience,
+            "validation_fraction": validation_fraction,
+            "random_state": random_state,
+            "optimizer": "Adam",
+            "loss": "MSE",
+        },
+    }
     return scaler, model, training_info
 
 
@@ -197,7 +217,15 @@ def load_autoencoder_artifact(model_dir: Path) -> tuple[StandardScaler, Autoenco
     with (model_dir / "scaler.pkl").open("rb") as f:
         scaler = pickle.load(f)
 
-    model = Autoencoder()
+    # Artifacts saved before hyperparameters were recorded used the default bottleneck.
+    hyperparameters = {}
+    metadata_path = model_dir / "metadata.json"
+    if metadata_path.exists():
+        hyperparameters = json.loads(metadata_path.read_text()).get("hyperparameters", {})
+    model = Autoencoder(
+        input_dim=hyperparameters.get("input_dim", INPUT_DIM),
+        bottleneck_dim=hyperparameters.get("bottleneck_dim", BOTTLENECK_DIM),
+    )
     model.load_state_dict(torch.load(model_dir / "model.pt", weights_only=True))
     model.eval()
 
